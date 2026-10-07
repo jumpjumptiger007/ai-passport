@@ -467,6 +467,15 @@ static void test_send_preview_cancel_retry_and_id_wrap(void)
     assert(runtime.state == SONIC_RUNTIME_TX_MENU);
     send_button(&runtime, SONIC_RUNTIME_BUTTON_UP, 3u, &actions);
     assert(runtime.preset_selection == SONIC_RUNTIME_PRESET_TEST_TOKEN);
+    {
+        sonic_runtime_view_t view;
+        sonic_runtime_get_view(&runtime, &view);
+        assert(view.state == SONIC_RUNTIME_TX_MENU);
+        assert(view.payload_type == SONIC_TYPE_TOKEN);
+        assert(view.payload_length == sizeof(payload));
+        assert(view.frame_count == 2u);
+        assert(memcmp(view.payload, payload, sizeof(payload)) == 0);
+    }
     send_button(&runtime, SONIC_RUNTIME_BUTTON_OK, 4u, &actions);
     assert(runtime.state == SONIC_RUNTIME_TX_PREVIEW);
     assert(runtime.current_message_id == 0xFFFFu);

@@ -652,5 +652,24 @@ void sonic_runtime_get_view(const sonic_runtime_t *runtime,
     out_view->error = runtime->error;
     memcpy(out_view->payload, runtime->current_payload,
            runtime->current_payload_length);
+    if (runtime->state == SONIC_RUNTIME_TX_MENU &&
+        runtime->preset_selection < SONIC_RUNTIME_PRESET_COUNT) {
+        const sonic_runtime_preset_payload_t *preset =
+            &runtime->presets[runtime->preset_selection];
+        if (preset->available && preset->length <= sizeof(out_view->payload)) {
+            uint8_t frames[SONIC_MAX_FRAGMENTS][SONIC_FRAME_SIZE];
+            size_t frame_count = 0u;
+            out_view->payload_type = preset->type;
+            out_view->payload_length = preset->length;
+            memcpy(out_view->payload, preset->bytes, preset->length);
+            if (sonic_message_fragment(preset->type, runtime->current_message_id,
+                                       preset->bytes, preset->length, frames,
+                                       SONIC_MAX_FRAGMENTS, &frame_count) == SONIC_OK) {
+                out_view->frame_count = (uint8_t)frame_count;
+            } else {
+                out_view->frame_count = 0u;
+            }
+        }
+    }
     out_view->last_transfer = runtime->last_transfer;
 }

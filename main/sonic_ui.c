@@ -6,31 +6,37 @@
 #include "lvgl.h"
 #include "sonic_core.h"
 
-#define UI_COLOR_SCREEN 0xF6F7F4u
-#define UI_COLOR_SURFACE 0xFFFFFFu
-#define UI_COLOR_BLUE 0x2563EBu
-#define UI_COLOR_BLUE_DARK 0x1746A2u
-#define UI_COLOR_BLUE_TINT 0xEAF1FFu
-#define UI_COLOR_INK 0x111318u
-#define UI_COLOR_MUTED 0x626D77u
-#define UI_COLOR_LINE 0xD6DCE2u
-#define UI_COLOR_GREEN 0x248A52u
-#define UI_COLOR_GREEN_TINT 0xEAF7EFu
-#define UI_COLOR_AMBER 0xA35D0Bu
-#define UI_COLOR_AMBER_TINT 0xFFF4E5u
-#define UI_COLOR_RED 0xB33A35u
-#define UI_COLOR_RED_TINT 0xFDEEEDu
-#define UI_COLOR_GRAY 0x7B858Fu
-#define UI_COLOR_GRAY_TINT 0xE9EDF0u
+#define UI_COLOR_SCREEN 0x16201Cu
+#define UI_COLOR_SURFACE 0x1D2823u
+#define UI_COLOR_PANEL 0x26312Cu
+#define UI_COLOR_ACTIVE 0x6BD4DCu
+#define UI_COLOR_ACTIVE_DIM 0x397B80u
+#define UI_COLOR_INK 0xEEF2EDu
+#define UI_COLOR_MUTED 0x9BA69Fu
+#define UI_COLOR_LINE 0x59645Du
+#define UI_COLOR_GREEN 0x91CE74u
+#define UI_COLOR_GREEN_TINT 0x91CE74u
+#define UI_COLOR_AMBER 0xD6A343u
+#define UI_COLOR_AMBER_TINT 0xD6A343u
+#define UI_COLOR_RED 0xC86E63u
+#define UI_COLOR_RED_TINT 0xC86E63u
+#define UI_COLOR_GRAY 0x505C56u
+#define UI_COLOR_LIGHT 0xD8D2C6u
+#define UI_COLOR_LIGHT_TEXT 0x1A1E1Bu
 
 static lv_obj_t *s_screen;
 static lv_obj_t *s_header_title;
-static lv_obj_t *s_header_page;
 static lv_obj_t *s_header_battery;
+static lv_obj_t *s_header_battery_fill;
+static lv_obj_t *s_section;
+static lv_obj_t *s_subsection;
 static lv_obj_t *s_content;
 static lv_obj_t *s_footer_labels[3];
-static lv_obj_t *s_meter_bars[5];
+static lv_obj_t *s_meter_bars[10];
 static bool s_meter_visible;
+static int s_meter_y_base;
+static bool s_meter_paused;
+static uint8_t s_meter_phase;
 static sonic_runtime_view_t s_previous_view;
 static sonic_ui_context_t s_previous_context;
 static bool s_has_previous;
@@ -74,8 +80,8 @@ static lv_obj_t *make_card(lv_obj_t *parent, int32_t x, int32_t y,
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(card, color(UI_COLOR_LINE), 0);
     lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_set_style_radius(card, 12, 0);
-    lv_obj_set_style_pad_all(card, 9, 0);
+    lv_obj_set_style_radius(card, 4, 0);
+    lv_obj_set_style_pad_all(card, 7, 0);
     return card;
 }
 
@@ -101,44 +107,60 @@ static void set_chip(lv_obj_t *parent, const char *text, uint32_t foreground,
     lv_obj_t *chip = lv_label_create(parent);
     lv_label_set_text(chip, text);
     lv_obj_set_style_text_font(chip, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(chip, color(foreground), 0);
+    lv_obj_set_style_text_color(chip, color(foreground == UI_COLOR_GREEN ||
+                                             foreground == UI_COLOR_AMBER ||
+                                             foreground == UI_COLOR_RED
+                                                 ? UI_COLOR_LIGHT_TEXT : foreground), 0);
     lv_obj_set_style_bg_color(chip, color(background), 0);
     lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_hor(chip, 8, 0);
     lv_obj_set_style_pad_ver(chip, 2, 0);
-    lv_obj_align(chip, LV_ALIGN_TOP_LEFT, 14, 10);
+    lv_obj_set_style_radius(chip, 3, 0);
+    lv_obj_align(chip, LV_ALIGN_TOP_LEFT, 12, 21);
 }
 
 static void set_header(const sonic_runtime_view_t *view,
                        const sonic_ui_context_t *context)
 {
     char battery[12];
-    const char *title = "Sonic Link";
-
-    if (view->state >= SONIC_RUNTIME_RX_LISTENING &&
-        view->state <= SONIC_RUNTIME_RX_FRAME_CONFLICT) {
-        title = "Receive";
-    } else if (view->state >= SONIC_RUNTIME_TX_MENU &&
-               view->state <= SONIC_RUNTIME_TX_AUDIO_ERROR) {
-        title = "Send";
-    } else if (view->state == SONIC_RUNTIME_DIAGNOSTICS) {
-        title = "Diagnostics";
-    }
-    lv_label_set_text(s_header_title, title);
-    if (view->state == SONIC_RUNTIME_DIAGNOSTICS) {
-        lv_label_set_text_fmt(s_header_page, "%u/4",
-                              (unsigned)view->diagnostics_page + 1u);
+    const char *section = "MODE SELECT";
+    if ((view->state >= SONIC_RUNTIME_RX_LISTENING &&
+         view->state <= SONIC_RUNTIME_RX_AUDIO_ERROR) ||
+        view->state == SONIC_RUNTIME_RX_UNSUPPORTED_GLYPH ||
+        view->state == SONIC_RUNTIME_RX_FRAME_CONFLICT) section = "RECEIVE";
+    else if (view->state >= SONIC_RUNTIME_TX_MENU &&
+             view->state <= SONIC_RUNTIME_TX_AUDIO_ERROR) section = "SEND";
+    else if (view->state == SONIC_RUNTIME_DIAGNOSTICS) section = "DIAGNOSTICS";
+    lv_label_set_text(s_header_title, "SONIC LINK");
+    lv_label_set_text(s_section, section);
+    if (view->state == SONIC_RUNTIME_RX_COMPLETE ||
+        view->state == SONIC_RUNTIME_RX_INCOMPLETE ||
+        view->state == SONIC_RUNTIME_RX_INVALID_MESSAGE ||
+        view->state == SONIC_RUNTIME_RX_UNSUPPORTED_GLYPH ||
+        view->state == SONIC_RUNTIME_RX_FRAME_CONFLICT ||
+        view->state == SONIC_RUNTIME_RX_AUDIO_ERROR ||
+        view->state == SONIC_RUNTIME_TX_COMPLETE ||
+        view->state == SONIC_RUNTIME_TX_CANCELLED ||
+        view->state == SONIC_RUNTIME_TX_AUDIO_ERROR) {
+        lv_obj_add_flag(s_section, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text(s_header_page, "");
+        lv_obj_remove_flag(s_section, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (view->state == SONIC_RUNTIME_TX_MENU) {
+        lv_obj_remove_flag(s_subsection, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_subsection, LV_OBJ_FLAG_HIDDEN);
     }
     if (context->battery_percent >= 0 && context->battery_percent <= 100) {
         (void)snprintf(battery, sizeof(battery), "%d%%",
                        context->battery_percent);
     } else {
-        (void)snprintf(battery, sizeof(battery), "-");
+        battery[0] = '\0';
     }
     lv_label_set_text(s_header_battery, battery);
+    lv_obj_set_width(s_header_battery_fill,
+                     context->battery_percent >= 0 && context->battery_percent <= 100
+                         ? 11 * context->battery_percent / 100 : 0);
 }
 
 size_t sonic_ui_page_count(const sonic_runtime_view_t *view)
@@ -196,137 +218,143 @@ size_t sonic_ui_current_page(void)
 
 static void render_home(const sonic_runtime_view_t *view)
 {
-    static const char *items[] = {"Receive", "Send", "Diagnostics"};
-    static const int y_positions[] = {82, 138, 194};
-
-    label_at(s_content, "Choose an action", &lv_font_montserrat_20,
-             UI_COLOR_INK, 16, 20, 208, 28);
+    static const char *items[] = {"RECEIVE", "SEND", "DIAGNOSTICS"};
+    static const char *copies[] = {"Get data from sound", "Play data as sound",
+                                   "Check system status"};
     for (size_t i = 0u; i < 3u; ++i) {
         bool selected = i == (size_t)view->home_selection;
-        lv_obj_t *row = make_card(s_content, 14, y_positions[i], 212, 44,
-                                  selected ? UI_COLOR_BLUE_TINT
-                                           : UI_COLOR_SURFACE);
+        lv_obj_t *row = make_card(s_content, 14, 56 + (int)i * 60, 212, 54,
+                                  selected ? UI_COLOR_PANEL : UI_COLOR_SURFACE);
         if (selected) {
-            lv_obj_set_style_border_color(row, color(0xBFD0F1u), 0);
+            lv_obj_set_style_border_color(row, color(UI_COLOR_ACTIVE), 0);
+            lv_obj_set_style_border_width(row, 2, 0);
             lv_obj_t *dot = lv_obj_create(row);
             lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_set_size(dot, 8, 8);
-            lv_obj_set_style_bg_color(dot, color(UI_COLOR_BLUE), 0);
+            lv_obj_set_size(dot, 6, 28);
+            lv_obj_set_style_bg_color(dot, color(UI_COLOR_ACTIVE), 0);
             lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(dot, 0, 0);
-            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-            lv_obj_align(dot, LV_ALIGN_LEFT_MID, 1, 0);
+            lv_obj_set_style_radius(dot, 1, 0);
+            lv_obj_align(dot, LV_ALIGN_LEFT_MID, -4, 0);
         }
-        label_at(row, items[i], &lv_font_montserrat_20,
-                 selected ? UI_COLOR_BLUE_DARK : UI_COLOR_INK,
-                 selected ? 23 : 14, 3, 172, 26);
+        label_at(row, items[i], &lv_font_montserrat_14,
+                 selected ? UI_COLOR_ACTIVE : UI_COLOR_INK, 10, 5, 178, 20);
+        label_at(row, copies[i], &lv_font_montserrat_14,
+                 UI_COLOR_MUTED, 10, 28, 178, 18);
     }
     set_footer("UP/DN", "OK Open", "");
 }
 
-static void create_meter(void)
+static void create_meter(int y_base)
 {
-    static const int heights[] = {12, 22, 32, 24, 14};
-    int x = 78;
-
-    for (size_t i = 0u; i < 5u; ++i) {
+    for (size_t i = 0u; i < 10u; ++i) {
         s_meter_bars[i] = lv_obj_create(s_content);
         lv_obj_remove_flag(s_meter_bars[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(s_meter_bars[i], 8, heights[i]);
-        lv_obj_set_pos(s_meter_bars[i], x, 82 - heights[i]);
-        lv_obj_set_style_bg_color(s_meter_bars[i], color(UI_COLOR_GRAY_TINT), 0);
+        lv_obj_set_size(s_meter_bars[i], 9, 8);
+        lv_obj_set_pos(s_meter_bars[i], 42 + (int)i * 15, y_base);
+        lv_obj_set_style_bg_color(s_meter_bars[i], color(UI_COLOR_GRAY), 0);
         lv_obj_set_style_bg_opa(s_meter_bars[i], LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(s_meter_bars[i], 0, 0);
-        lv_obj_set_style_radius(s_meter_bars[i], LV_RADIUS_CIRCLE, 0);
-        x += 17;
+        lv_obj_set_style_radius(s_meter_bars[i], 1, 0);
     }
     s_meter_visible = true;
+    s_meter_y_base = y_base;
 }
 
 static void update_meter(const sonic_runtime_view_t *view,
                          const sonic_ui_context_t *context)
 {
-    static const float thresholds[] = {64.0f, 220.0f, 700.0f, 2200.0f, 7000.0f};
-    static const int heights[] = {12, 22, 32, 24, 14};
-    bool listening = view->state == SONIC_RUNTIME_RX_LISTENING &&
-                     view->microphone_active;
+    static const uint8_t wave[] = {3u, 4u, 5u, 6u, 7u, 8u, 7u, 6u, 5u, 4u};
 
     if (!s_meter_visible) {
         return;
     }
-    for (size_t i = 0u; i < 5u; ++i) {
-        bool active = listening && context->audio_diagnostics_available &&
-                      context->microphone_rms >= thresholds[i];
+    s_meter_paused = view->state == SONIC_RUNTIME_RX_PAUSED;
+    for (size_t i = 0u; i < 10u; ++i) {
+        int height = 5;
+        if (!s_meter_paused) {
+            int rhythm = (int)wave[(i + s_meter_phase) % 10u];
+            float level = context->audio_diagnostics_available &&
+                          view->microphone_active ? context->microphone_rms : 0.0f;
+            int input_gain = level > 500.0f ? 10 : (level > 120.0f ? 5 : 0);
+            height = 11 + rhythm * 5 + input_gain;
+            int maximum = s_meter_y_base == 132 ? 54 : 43;
+            if (height > maximum) height = maximum;
+        }
         lv_obj_set_style_bg_color(s_meter_bars[i],
-                                  color(active ? UI_COLOR_BLUE
-                                               : UI_COLOR_GRAY_TINT), 0);
-        lv_obj_set_size(s_meter_bars[i], 8, active ? heights[i] : 6);
-        lv_obj_set_y(s_meter_bars[i], 82 - (active ? heights[i] : 6));
+                                  color(s_meter_paused ? UI_COLOR_GRAY : UI_COLOR_ACTIVE), 0);
+        lv_obj_set_size(s_meter_bars[i], 9, height);
+        lv_obj_set_y(s_meter_bars[i], s_meter_y_base + 54 - height);
     }
+    if (!s_meter_paused) s_meter_phase = (uint8_t)((s_meter_phase + 1u) % 10u);
 }
 
-static void render_receive_listening(void)
+static void render_receive_listening(const sonic_runtime_view_t *view)
 {
-    label_at(s_content, "SOUND INPUT", &lv_font_montserrat_14,
-             UI_COLOR_BLUE, 16, 12, 208, 20);
-    create_meter();
-    label_at(s_content, "Listening", &lv_font_montserrat_28,
-             UI_COLOR_INK, 12, 97, 216, 42);
-    label_at(s_content, "Waiting for sound from your phone.",
-             &lv_font_montserrat_14, UI_COLOR_MUTED,
-             20, 145, 200, 44);
-    set_footer("", "OK Pause", "Hold Back");
-}
-
-static void render_receive_paused(void)
-{
-    label_at(s_content, "PAUSED", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 20, 32, 200, 20);
-    lv_obj_t *pause = lv_obj_create(s_content);
-    lv_obj_remove_flag(pause, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(pause, 68, 68);
-    lv_obj_set_pos(pause, 86, 66);
-    lv_obj_set_style_bg_opa(pause, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(pause, color(UI_COLOR_LINE), 0);
-    lv_obj_set_style_border_width(pause, 2, 0);
-    lv_obj_set_style_radius(pause, LV_RADIUS_CIRCLE, 0);
-    label_at(pause, "||", &lv_font_montserrat_28, UI_COLOR_MUTED,
-             14, 12, 40, 38);
-    label_at(s_content, "Listening paused", &lv_font_montserrat_20,
-             UI_COLOR_INK, 12, 150, 216, 30);
-    label_at(s_content, "Press OK to resume.", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 20, 188, 200, 28);
-    set_footer("", "OK Resume", "Hold Back");
+    bool paused = view->state == SONIC_RUNTIME_RX_PAUSED;
+    label_at(s_content, paused ? "PAUSED" : "LISTENING",
+             &lv_font_montserrat_20, UI_COLOR_INK, 16, 62, 208, 28);
+    create_meter(132);
+    label_at(s_content, paused ? "Microphone paused" : "Waiting for sound",
+             &lv_font_montserrat_14, UI_COLOR_MUTED, 20, 94, 200, 20);
+    label_at(s_content, paused ? "Press OK to resume" : "from your phone",
+             &lv_font_montserrat_14, UI_COLOR_MUTED, 20, 113, 200, 20);
+    lv_obj_t *summary = make_card(s_content, 14, 190, 212, 49, UI_COLOR_SURFACE);
+    label_at(summary, paused ? "MIC PAUSED" : "MIC ACTIVE",
+             &lv_font_montserrat_14, paused ? UI_COLOR_MUTED : UI_COLOR_GREEN,
+             8, 14, 92, 18);
+    label_at(summary, "FRAME  - / -", &lv_font_montserrat_14,
+             UI_COLOR_INK, 108, 14, 94, 18);
+    set_footer("", paused ? "OK Resume" : "OK Pause", "Hold Back");
 }
 
 static void render_receiving(const sonic_runtime_view_t *view)
 {
     char progress[20];
+    char readout[24];
     size_t count = view->expected_fragments;
     size_t received = view->received_fragments;
     int start_x = count == 1u ? 112 : (count == 2u ? 103 : 95);
 
-    label_at(s_content, "RECEIVING", &lv_font_montserrat_14,
-             UI_COLOR_BLUE, 16, 25, 208, 20);
+    label_at(s_content, "RECEIVING", &lv_font_montserrat_20,
+             UI_COLOR_INK, 16, 59, 208, 24);
+    label_at(s_content, "Assembling message fragments.",
+             &lv_font_montserrat_14, UI_COLOR_MUTED, 16, 84, 208, 18);
     for (size_t i = 0u; i < count && i < SONIC_MAX_FRAGMENTS; ++i) {
         lv_obj_t *dot = lv_obj_create(s_content);
         lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_size(dot, 14, 14);
-        lv_obj_set_pos(dot, start_x + (int)i * 24, 75);
-        lv_obj_set_style_bg_color(dot, color(i < received ? UI_COLOR_BLUE
-                                                         : UI_COLOR_GRAY_TINT), 0);
+        lv_obj_set_pos(dot, start_x + (int)i * 24, 155);
+        lv_obj_set_style_bg_color(dot, color(i < received ? UI_COLOR_ACTIVE
+                                                         : UI_COLOR_GRAY), 0);
         lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(dot, color(i < received ? UI_COLOR_BLUE
+        lv_obj_set_style_border_color(dot, color(i < received ? UI_COLOR_ACTIVE
                                                               : UI_COLOR_LINE), 0);
         lv_obj_set_style_border_width(dot, 1, 0);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
     }
     (void)snprintf(progress, sizeof(progress), "%u / %u",
                    (unsigned)received, (unsigned)count);
-    label_at(s_content, progress, &lv_font_montserrat_28,
-             UI_COLOR_INK, 30, 108, 180, 44);
-    label_at(s_content, "Keep the phone nearby.", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 20, 166, 200, 28);
+    label_at(s_content, progress, &lv_font_montserrat_20,
+             UI_COLOR_ACTIVE, 30, 111, 180, 26);
+    label_at(s_content, "FRAGMENTS", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 30, 134, 180, 18);
+    label_at(s_content, "MESSAGE ID", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 14, 190, 100, 18);
+    label_at(s_content, "FRAME", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 14, 211, 100, 18);
+    label_at(s_content, "SIGNAL", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 14, 230, 100, 18);
+    (void)snprintf(readout, sizeof(readout), "%04X", (unsigned)view->message_id);
+    label_at(s_content, readout, &lv_font_montserrat_14,
+             UI_COLOR_INK, 134, 190, 90, 18);
+    (void)snprintf(readout, sizeof(readout), "%u / %u",
+                   (unsigned)view->received_fragments,
+                   (unsigned)view->expected_fragments);
+    label_at(s_content, readout, &lv_font_montserrat_14,
+             UI_COLOR_INK, 134, 211, 90, 18);
+    label_at(s_content, "ACTIVE", &lv_font_montserrat_14,
+             UI_COLOR_ACTIVE, 134, 230, 90, 18);
     set_footer("", "", "Hold Stop");
 }
 
@@ -419,13 +447,13 @@ static void diag_row(lv_obj_t *parent, const char *key, const char *value,
                      int y)
 {
     label_at(parent, key, &lv_font_montserrat_14, UI_COLOR_MUTED,
-             14, y, 100, 19);
+             14, y, 98, 18);
     label_at(parent, value, &lv_font_montserrat_14, UI_COLOR_INK,
-             116, y, 110, 19);
+             114, y, 112, 18);
     lv_obj_t *line = lv_obj_create(parent);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(line, 212, 1);
-    lv_obj_set_pos(line, 14, y + 22);
+    lv_obj_set_pos(line, 14, y + 20);
     lv_obj_set_style_bg_color(line, color(UI_COLOR_LINE), 0);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(line, 0, 0);
@@ -434,13 +462,13 @@ static void diag_row(lv_obj_t *parent, const char *key, const char *value,
 static void diag_profile_row(lv_obj_t *parent, const char *value, int y)
 {
     label_at(parent, "Profile", &lv_font_montserrat_14, UI_COLOR_MUTED,
-             14, y, 78, 19);
+             14, y, 82, 18);
     label_at(parent, value, &lv_font_montserrat_14, UI_COLOR_INK,
-             102, y, 124, 19);
+             98, y, 128, 18);
     lv_obj_t *line = lv_obj_create(parent);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(line, 212, 1);
-    lv_obj_set_pos(line, 14, y + 22);
+    lv_obj_set_pos(line, 14, y + 20);
     lv_obj_set_style_bg_color(line, color(UI_COLOR_LINE), 0);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(line, 0, 0);
@@ -581,24 +609,36 @@ static void render_audio_error(const char *title, const char *copy)
 static void render_send_menu(const sonic_runtime_view_t *view)
 {
     static const char *items[] = {"Hello", "Demo URL", "Device Card", "Test Token"};
-
-    label_at(s_content, "Choose data", &lv_font_montserrat_14,
-             UI_COLOR_BLUE, 16, 12, 208, 20);
-    label_at(s_content, "Send", &lv_font_montserrat_28,
-             UI_COLOR_INK, 16, 35, 208, 42);
-    for (size_t i = 0u; i < SONIC_RUNTIME_PRESET_COUNT; ++i) {
-        bool selected = i == (size_t)view->preset_selection;
-        lv_obj_t *row = make_card(s_content, 14, 86 + (int)i * 42,
-                                  212, 36,
-                                  selected ? UI_COLOR_BLUE_TINT
-                                           : UI_COLOR_SURFACE);
-        if (selected) {
-            lv_obj_set_style_border_color(row, color(0xBFD0F1u), 0);
-        }
-        label_at(row, items[i], &lv_font_montserrat_14,
-                 selected ? UI_COLOR_BLUE_DARK : UI_COLOR_INK,
-                 10, 0, 188, 24);
-    }
+    char row[32];
+    char index[16];
+    const size_t selected = (size_t)view->preset_selection % SONIC_RUNTIME_PRESET_COUNT;
+    const size_t previous = (selected + SONIC_RUNTIME_PRESET_COUNT - 1u) % SONIC_RUNTIME_PRESET_COUNT;
+    const size_t next = (selected + 1u) % SONIC_RUNTIME_PRESET_COUNT;
+    lv_obj_t *panel = make_card(s_content, 12, 91, 216, 118, UI_COLOR_LIGHT);
+    lv_obj_set_style_bg_color(panel, color(UI_COLOR_LIGHT), 0);
+    lv_obj_set_style_border_color(panel, color(0x8D8A81u), 0);
+    lv_obj_set_style_radius(panel, 3, 0);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+    (void)snprintf(index, sizeof(index), "%02u / 04",
+                   (unsigned)view->preset_selection + 1u);
+    label_at(panel, index, &lv_font_montserrat_14, UI_COLOR_LIGHT_TEXT,
+             76, 5, 64, 18);
+    label_at(panel, items[selected], &lv_font_montserrat_20, UI_COLOR_LIGHT_TEXT,
+             12, 25, 184, 28);
+    (void)snprintf(row, sizeof(row), "TYPE  %s", payload_type_name(view->payload_type));
+    label_at(panel, row, &lv_font_montserrat_14, UI_COLOR_LIGHT_TEXT,
+             12, 56, 184, 18);
+    (void)snprintf(row, sizeof(row), "SIZE  %u B", (unsigned)view->payload_length);
+    label_at(panel, row, &lv_font_montserrat_14, UI_COLOR_LIGHT_TEXT,
+             12, 76, 184, 18);
+    (void)snprintf(row, sizeof(row), "FRAMES  %u", (unsigned)view->frame_count);
+    label_at(panel, row, &lv_font_montserrat_14, UI_COLOR_LIGHT_TEXT,
+             12, 96, 184, 18);
+    lv_obj_t *neighbors = make_card(s_content, 14, 215, 212, 27, UI_COLOR_SURFACE);
+    label_at(neighbors, items[previous], &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 6, 5, 96, 18);
+    label_at(neighbors, items[next], &lv_font_montserrat_14,
+             UI_COLOR_INK, 108, 5, 96, 18);
     set_footer("UP/DN", "OK Open", "Hold Back");
 }
 
@@ -647,7 +687,7 @@ static void render_send_preview(const sonic_runtime_view_t *view)
         preview[preview_length] = '\0';
     }
 
-    set_chip(s_content, "PREVIEW", UI_COLOR_BLUE_DARK, UI_COLOR_BLUE_TINT);
+    set_chip(s_content, "PREVIEW - READ ONLY", UI_COLOR_ACTIVE, UI_COLOR_SURFACE);
     label_at(s_content, view->preset_selection == SONIC_RUNTIME_PRESET_HELLO
                            ? "Hello"
                            : view->preset_selection == SONIC_RUNTIME_PRESET_DEMO_URL
@@ -655,50 +695,38 @@ static void render_send_preview(const sonic_runtime_view_t *view)
                                  : view->preset_selection == SONIC_RUNTIME_PRESET_DEVICE_CARD
                                        ? "Device Card" : "Test Token",
              &lv_font_montserrat_20, UI_COLOR_INK, 16, 43, 208, 28);
-    lv_obj_t *card = make_card(s_content, 14, 75, 212, 66, UI_COLOR_SURFACE);
+    lv_obj_t *card = make_card(s_content, 14, 75, 212, 104, UI_COLOR_SURFACE);
     label_at(card, view->payload_type == SONIC_TYPE_TEXT ? "TEXT" :
                   view->payload_type == SONIC_TYPE_URL ? "URL" :
                   view->payload_type == SONIC_TYPE_TOKEN ? "TOKEN" : "DEVICE_INFO",
              &lv_font_montserrat_14, UI_COLOR_MUTED, 8, 1, 184, 18);
     label_at(card, preview, &lv_font_montserrat_14,
-             UI_COLOR_INK, 8, 20, 184, 42);
+             UI_COLOR_INK, 8, 20, 184, 72);
     (void)snprintf(details, sizeof(details), "%u B / %u fr / %.8s",
                    (unsigned)view->payload_length,
                    (unsigned)view->frame_count,
                    estimate);
     label_at(s_content, details, &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 14, 151, 212, 22);
+             UI_COLOR_MUTED, 14, 187, 212, 22);
     set_footer("", "OK Send", "Hold Back");
 }
 
 static void render_tx_playing(const sonic_runtime_view_t *view)
 {
     char progress[20];
-    size_t count = view->frame_count;
     size_t current = view->frame_index;
-    int start_x = count == 1u ? 112 : (count == 2u ? 103 : 95);
 
-    label_at(s_content, "PLAYING SOUND", &lv_font_montserrat_14,
-             UI_COLOR_BLUE, 16, 36, 208, 20);
-    label_at(s_content, "Sending", &lv_font_montserrat_28,
-             UI_COLOR_INK, 16, 66, 208, 42);
-    for (size_t i = 0u; i < count && i < SONIC_MAX_FRAGMENTS; ++i) {
-        lv_obj_t *dot = lv_obj_create(s_content);
-        lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(dot, 14, 14);
-        lv_obj_set_pos(dot, start_x + (int)i * 24, 132);
-        lv_obj_set_style_bg_color(dot, color(i < current ? UI_COLOR_BLUE
-                                                         : UI_COLOR_GRAY_TINT), 0);
-        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(dot, color(i < current ? UI_COLOR_BLUE
-                                                              : UI_COLOR_LINE), 0);
-        lv_obj_set_style_border_width(dot, 1, 0);
-        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    }
+    label_at(s_content, "PLAYING SOUND", &lv_font_montserrat_20,
+             UI_COLOR_INK, 16, 65, 208, 27);
+    label_at(s_content, "Keep the phone nearby.", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 20, 93, 200, 18);
+    create_meter(104);
     (void)snprintf(progress, sizeof(progress), "%u / %u",
-                   (unsigned)current, (unsigned)count);
+                   (unsigned)current, (unsigned)view->frame_count);
     label_at(s_content, progress, &lv_font_montserrat_20,
-             UI_COLOR_INK, 30, 162, 180, 30);
+             UI_COLOR_ACTIVE, 30, 169, 180, 28);
+    label_at(s_content, "FRAMES PLAYED", &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 30, 196, 180, 18);
     set_footer("", "", "Hold Stop");
 }
 
@@ -706,7 +734,7 @@ static void render_tx_terminal(const sonic_runtime_view_t *view)
 {
     if (view->state == SONIC_RUNTIME_TX_COMPLETE) {
         set_chip(s_content, "SENT", UI_COLOR_GREEN, UI_COLOR_GREEN_TINT);
-        label_at(s_content, "Sound transmission completed.",
+        label_at(s_content, "Transmission complete",
                  &lv_font_montserrat_20, UI_COLOR_INK, 16, 54, 208, 56);
         label_at(s_content, "Reception is not acknowledged.",
                  &lv_font_montserrat_14, UI_COLOR_MUTED, 18, 122, 204, 42);
@@ -721,74 +749,77 @@ static void render_tx_terminal(const sonic_runtime_view_t *view)
 static void render_diagnostics(const sonic_runtime_view_t *view,
                                const sonic_ui_context_t *context)
 {
+    static const char *tabs[] = {"SYS", "AUDIO", "CODEC", "LAST"};
     char value[36];
-    int y = 44;
+    const int y = 94;
+    const int page = (int)view->diagnostics_page;
 
-    label_at(s_content, view->diagnostics_page == SONIC_RUNTIME_DIAG_SYSTEM
-                           ? "System"
-                           : view->diagnostics_page == SONIC_RUNTIME_DIAG_AUDIO
-                                 ? "Audio"
-                                 : view->diagnostics_page == SONIC_RUNTIME_DIAG_CODEC
-                                       ? "Codec" : "Last Transfer",
-             &lv_font_montserrat_20, UI_COLOR_INK, 14, 8, 212, 28);
+    for (int i = 0; i < 4; ++i) {
+        lv_obj_t *tab = make_card(s_content, 14 + i * 53, 60, 52, 27,
+                                  i == page ? UI_COLOR_LIGHT : UI_COLOR_SURFACE);
+        lv_obj_set_style_pad_all(tab, 0, 0);
+        lv_obj_set_style_radius(tab, 2, 0);
+        lv_obj_set_style_border_color(tab, color(i == page ? 0x9A968Du : UI_COLOR_LINE), 0);
+        lv_obj_t *tab_label = make_label(tab, tabs[i], &lv_font_montserrat_14,
+                                         i == page ? UI_COLOR_LIGHT_TEXT : UI_COLOR_MUTED,
+                                         50, 18);
+        lv_obj_set_style_text_align(tab_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_letter_space(tab_label, -1, 0);
+        lv_obj_set_pos(tab_label, 0, 4);
+    }
     switch (view->diagnostics_page) {
     case SONIC_RUNTIME_DIAG_SYSTEM:
         diag_row(s_content, "Sonic Link", context->sonic_version, y);
-        diag_row(s_content, "Build", context->build_fingerprint, y + 27);
+        diag_row(s_content, "Build", context->build_fingerprint, y + 18);
         if (context->battery_percent >= 0) {
             (void)snprintf(value, sizeof(value), "%d%%", context->battery_percent);
         } else {
             (void)snprintf(value, sizeof(value), "-");
         }
-        diag_row(s_content, "Battery", value, y + 54);
+        diag_row(s_content, "Battery", value, y + 36);
         (void)snprintf(value, sizeof(value), "%d B", context->free_heap_bytes);
-        diag_row(s_content, "Free heap", context->free_heap_bytes >= 0 ? value : "-", y + 81);
+        diag_row(s_content, "Free heap", context->free_heap_bytes >= 0 ? value : "-", y + 54);
         (void)snprintf(value, sizeof(value), "%d B", context->minimum_free_heap_bytes);
-        diag_row(s_content, "Min heap", context->minimum_free_heap_bytes >= 0 ? value : "-", y + 108);
+        diag_row(s_content, "Min heap", context->minimum_free_heap_bytes >= 0 ? value : "-", y + 72);
         (void)snprintf(value, sizeof(value), "%d B", context->largest_free_block_bytes);
-        diag_row(s_content, "Largest block", context->largest_free_block_bytes >= 0 ? value : "-", y + 135);
+        diag_row(s_content, "Largest blk", context->largest_free_block_bytes >= 0 ? value : "-", y + 90);
         break;
     case SONIC_RUNTIME_DIAG_AUDIO:
         (void)snprintf(value, sizeof(value), "%ukHz/%ub/1ch",
                        (unsigned)(context->sample_rate_hz / 1000u),
                        (unsigned)context->sample_bits);
         diag_row(s_content, "Format", context->sample_rate_hz ? value : "-", y);
-        if (context->audio_diagnostics_available) {
-            (void)snprintf(value, sizeof(value), "%.1f dBFS",
-                           (double)context->microphone_dbfs);
-        } else {
-            (void)snprintf(value, sizeof(value), "-");
-        }
-        diag_row(s_content, "Mic level", value, y + 27);
+        (void)snprintf(value, sizeof(value), "%.1f dBFS",
+                       context->audio_diagnostics_available
+                           ? (double)context->microphone_dbfs : 0.0);
+        diag_row(s_content, "Mic level",
+                 context->audio_diagnostics_available ? value : "-", y + 18);
         (void)snprintf(value, sizeof(value), "%u%%",
                        (unsigned)context->speaker_volume_percent);
-        diag_row(s_content, "Volume", value, y + 54);
-        diag_row(s_content, "Worker", audio_state_name(context->audio_state), y + 81);
-        if (context->audio_diagnostics_available) {
-            (void)snprintf(value, sizeof(value), "%u words",
-                           (unsigned)context->worker_stack_high_water_words);
-        } else {
-            (void)snprintf(value, sizeof(value), "-");
-        }
-        diag_row(s_content, "Stack free", value, y + 108);
+        diag_row(s_content, "Volume", value, y + 36);
+        diag_row(s_content, "Worker", audio_state_name(context->audio_state), y + 54);
+        (void)snprintf(value, sizeof(value), "%u words",
+                       (unsigned)context->worker_stack_high_water_words);
+        diag_row(s_content, "Stack free",
+                 context->audio_diagnostics_available ? value : "-", y + 72);
         break;
     case SONIC_RUNTIME_DIAG_CODEC:
         diag_row(s_content, "ggwave", context->ggwave_version, y);
         diag_profile_row(s_content,
                          context->acoustic_profile == 1u ? "Audible Fastest" :
                          context->acoustic_profile == 2u ? "Audible Fast" : "Unknown",
-                         y + 27);
-        diag_row(s_content, "Frame", "40 bytes", y + 54);
-        diag_row(s_content, "Max message", "93 bytes", y + 81);
-        diag_row(s_content, "DSS", "Enabled", y + 108);
+                         y + 18);
+        diag_row(s_content, "Frame", "40 bytes", y + 36);
+        diag_row(s_content, "Max message", "93 bytes", y + 54);
+        diag_row(s_content, "DSS", "Enabled", y + 72);
         (void)snprintf(value, sizeof(value), "%d B", context->codec_heap_bytes);
-        diag_row(s_content, "Codec heap", context->codec_heap_bytes >= 0 ? value : "-", y + 135);
+        diag_row(s_content, "Codec heap", context->codec_heap_bytes >= 0 ? value : "-", y + 90);
         (void)snprintf(value, sizeof(value), "%llu us",
                        (unsigned long long)context->rx_average_us);
-        diag_row(s_content, "RX avg", context->audio_diagnostics_available ? value : "-", y + 162);
+        diag_row(s_content, "RX avg", context->audio_diagnostics_available ? value : "-", y + 108);
         (void)snprintf(value, sizeof(value), "%llu us",
                        (unsigned long long)context->rx_p99_us);
-        diag_row(s_content, "RX p99", context->audio_diagnostics_available ? value : "-", y + 189);
+        diag_row(s_content, "RX p99", context->audio_diagnostics_available ? value : "-", y + 126);
         break;
     case SONIC_RUNTIME_DIAG_LAST_TRANSFER: {
         const sonic_runtime_last_transfer_t *transfer = &view->last_transfer;
@@ -797,19 +828,19 @@ static void render_diagnostics(const sonic_runtime_view_t *view,
             break;
         }
         diag_row(s_content, "Direction", transfer->is_rx ? "Receive" : "Send", y);
-        diag_row(s_content, "Type", payload_type_name(transfer->type), y + 27);
+        diag_row(s_content, "Type", payload_type_name(transfer->type), y + 18);
         (void)snprintf(value, sizeof(value), "%u / %u B",
                        (unsigned)transfer->frame_count,
                        (unsigned)transfer->byte_length);
-        diag_row(s_content, "Frames / bytes", value, y + 54);
+        diag_row(s_content, "Frames / B", value, y + 36);
         (void)snprintf(value, sizeof(value), "%u ms",
                        (unsigned)transfer->duration_ms);
-        diag_row(s_content, "Duration", value, y + 81);
+        diag_row(s_content, "Duration", value, y + 54);
         (void)snprintf(value, sizeof(value), "%04X",
                        (unsigned)transfer->message_id);
-        diag_row(s_content, "Message ID", value, y + 108);
-        diag_row(s_content, "Result", transfer_result_name(transfer->result), y + 135);
-        diag_row(s_content, "Error", sonic_error_name(transfer->error), y + 162);
+        diag_row(s_content, "Message ID", value, y + 72);
+        diag_row(s_content, "Result", transfer_result_name(transfer->result), y + 90);
+        diag_row(s_content, "Error", sonic_error_name(transfer->error), y + 108);
         break;
     }
     }
@@ -843,53 +874,106 @@ bool sonic_ui_create(void)
 
     lv_obj_t *header = lv_obj_create(s_screen);
     lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_size(header, 240, 28);
-    lv_obj_set_style_bg_color(header, color(UI_COLOR_SCREEN), 0);
+    lv_obj_set_pos(header, 7, 7);
+    lv_obj_set_size(header, 226, 28);
+    lv_obj_set_style_bg_color(header, color(0x101815u), 0);
     lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(header, color(UI_COLOR_LINE), 0);
+    lv_obj_set_style_border_width(header, 1, 0);
+    lv_obj_set_style_border_color(header, color(0x39423Du), 0);
+    lv_obj_set_style_radius(header, 3, 0);
     lv_obj_set_style_pad_all(header, 0, 0);
-    s_header_title = make_label(header, "Sonic Link", &lv_font_montserrat_14,
-                                UI_COLOR_MUTED, 122, 20);
-    lv_obj_align(s_header_title, LV_ALIGN_LEFT_MID, 12, 0);
-    s_header_page = make_label(header, "", &lv_font_montserrat_14,
-                               UI_COLOR_MUTED, 34, 20);
-    lv_obj_align(s_header_page, LV_ALIGN_RIGHT_MID, -62, 0);
-    s_header_battery = make_label(header, "-", &lv_font_montserrat_14,
-                                  UI_COLOR_MUTED, 44, 20);
+    lv_obj_t *wave = make_label(header, ")))", &lv_font_montserrat_14,
+                                UI_COLOR_ACTIVE, 24, 20);
+    lv_obj_align(wave, LV_ALIGN_LEFT_MID, 8, 0);
+    s_header_title = make_label(header, "SONIC LINK", &lv_font_montserrat_14,
+                                UI_COLOR_INK, 112, 20);
+    lv_obj_align(s_header_title, LV_ALIGN_LEFT_MID, 34, 0);
+    lv_obj_t *battery_outline = lv_obj_create(header);
+    lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(battery_outline, 169, 9);
+    lv_obj_set_size(battery_outline, 17, 9);
+    lv_obj_set_style_bg_opa(battery_outline, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(battery_outline, color(UI_COLOR_INK), 0);
+    lv_obj_set_style_border_width(battery_outline, 1, 0);
+    lv_obj_set_style_radius(battery_outline, 1, 0);
+    s_header_battery_fill = lv_obj_create(header);
+    lv_obj_remove_flag(s_header_battery_fill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(s_header_battery_fill, 172, 12);
+    lv_obj_set_size(s_header_battery_fill, 9, 3);
+    lv_obj_set_style_bg_color(s_header_battery_fill, color(UI_COLOR_INK), 0);
+    lv_obj_set_style_bg_opa(s_header_battery_fill, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_header_battery_fill, 0, 0);
+    lv_obj_t *battery_tip = lv_obj_create(header);
+    lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(battery_tip, 187, 12);
+    lv_obj_set_size(battery_tip, 2, 3);
+    lv_obj_set_style_bg_color(battery_tip, color(UI_COLOR_INK), 0);
+    lv_obj_set_style_bg_opa(battery_tip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(battery_tip, 0, 0);
+    s_header_battery = make_label(header, "", &lv_font_montserrat_14,
+                                  UI_COLOR_INK, 31, 20);
     lv_obj_set_style_text_align(s_header_battery, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_header_battery, LV_ALIGN_RIGHT_MID, -12, 0);
+    lv_obj_align(s_header_battery, LV_ALIGN_RIGHT_MID, -8, 0);
+
+    s_subsection = make_label(s_screen, "SELECT PRESET / READ ONLY",
+                              &lv_font_montserrat_14, UI_COLOR_INK, 222, 38);
+    lv_obj_set_pos(s_subsection, 9, 79);
+    lv_obj_set_style_bg_color(s_subsection, color(0x111A17u), 0);
+    lv_obj_set_style_bg_opa(s_subsection, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_subsection, color(0x39423Du), 0);
+    lv_obj_set_style_border_width(s_subsection, 1, 0);
+    lv_obj_set_style_radius(s_subsection, 3, 0);
+    lv_obj_set_style_pad_all(s_subsection, 0, 0);
+    lv_obj_set_style_text_color(s_subsection, color(UI_COLOR_INK), 0);
+    lv_obj_set_style_text_align(s_subsection, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_subsection, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_line_space(s_subsection, 1, 0);
+    lv_obj_set_style_pad_top(s_subsection, 8, 0);
+    lv_obj_add_flag(s_subsection, LV_OBJ_FLAG_HIDDEN);
 
     s_content = lv_obj_create(s_screen);
     lv_obj_remove_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_pos(s_content, 0, 28);
-    lv_obj_set_size(s_content, 240, 256);
+    lv_obj_set_size(s_content, 240, 249);
     lv_obj_set_style_bg_opa(s_content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_content, 0, 0);
     lv_obj_set_style_pad_all(s_content, 0, 0);
 
+    s_section = make_label(s_screen, "MODE SELECT", &lv_font_montserrat_14,
+                           UI_COLOR_LIGHT_TEXT, 222, 38);
+    lv_obj_set_pos(s_section, 9, 39);
+    lv_obj_set_style_bg_color(s_section, color(UI_COLOR_LIGHT), 0);
+    lv_obj_set_style_bg_opa(s_section, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_section, color(0x8D8A82u), 0);
+    lv_obj_set_style_border_width(s_section, 1, 0);
+    lv_obj_set_style_radius(s_section, 3, 0);
+    lv_obj_set_style_pad_left(s_section, 12, 0);
+    lv_obj_set_style_pad_top(s_section, 10, 0);
+    lv_obj_set_style_text_color(s_section, color(UI_COLOR_LIGHT_TEXT), 0);
+
     lv_obj_t *footer = lv_obj_create(s_screen);
     lv_obj_remove_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(footer, 0, 284);
-    lv_obj_set_size(footer, 240, 36);
-    lv_obj_set_style_bg_color(footer, color(UI_COLOR_SCREEN), 0);
+    lv_obj_set_pos(footer, 7, 277);
+    lv_obj_set_size(footer, 226, 36);
+    lv_obj_set_style_bg_color(footer, color(0x101815u), 0);
     lv_obj_set_style_bg_opa(footer, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
-    lv_obj_set_style_border_side(footer, LV_BORDER_SIDE_TOP, 0);
-    lv_obj_set_style_border_color(footer, color(UI_COLOR_LINE), 0);
+    lv_obj_set_style_border_width(footer, 1, 0);
+    lv_obj_set_style_border_color(footer, color(0x39413Du), 0);
+    lv_obj_set_style_radius(footer, 3, 0);
     lv_obj_set_style_pad_all(footer, 0, 0);
     for (size_t i = 0u; i < 3u; ++i) {
+        static const int32_t footer_x[] = {0, 50, 142};
+        static const int32_t footer_width[] = {50, 92, 84};
         s_footer_labels[i] = make_label(footer, "", &lv_font_montserrat_14,
-                                        UI_COLOR_MUTED, 80, 24);
+                                        UI_COLOR_INK, footer_width[i], 24);
         lv_obj_set_style_text_align(s_footer_labels[i], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(s_footer_labels[i], (int32_t)i * 80, 6);
+        lv_obj_set_pos(s_footer_labels[i], footer_x[i], 6);
     }
     lv_screen_load(s_screen);
     s_has_previous = false;
     s_page_index = 0u;
     s_previous_page_index = 0u;
+    s_meter_phase = 0u;
     s_page_message_id = 0u;
     s_page_state = SONIC_RUNTIME_HOME;
     s_page_payload_type = SONIC_TYPE_TEXT;
@@ -904,8 +988,10 @@ void sonic_ui_destroy(void)
     }
     s_screen = NULL;
     s_header_title = NULL;
-    s_header_page = NULL;
     s_header_battery = NULL;
+    s_header_battery_fill = NULL;
+    s_section = NULL;
+    s_subsection = NULL;
     s_content = NULL;
     memset(s_footer_labels, 0, sizeof(s_footer_labels));
     memset(s_meter_bars, 0, sizeof(s_meter_bars));
@@ -936,10 +1022,10 @@ void sonic_ui_render(const sonic_runtime_view_t *view,
             render_home(view);
             break;
         case SONIC_RUNTIME_RX_LISTENING:
-            render_receive_listening();
+            render_receive_listening(view);
             break;
         case SONIC_RUNTIME_RX_PAUSED:
-            render_receive_paused();
+            render_receive_listening(view);
             break;
         case SONIC_RUNTIME_RX_ASSEMBLING:
             render_receiving(view);
@@ -953,8 +1039,8 @@ void sonic_ui_render(const sonic_runtime_view_t *view,
                                view);
             break;
         case SONIC_RUNTIME_RX_INVALID_MESSAGE:
-            render_recoverable("Invalid message",
-                               "The received data could not be validated.", view);
+            render_audio_error("Invalid message",
+                               "The received data could not be validated.");
             break;
         case SONIC_RUNTIME_RX_UNSUPPORTED_GLYPH:
             render_recoverable("Text not shown",
@@ -977,8 +1063,8 @@ void sonic_ui_render(const sonic_runtime_view_t *view,
             render_send_preview(view);
             break;
         case SONIC_RUNTIME_TX_PREPARING:
-            set_chip(s_content, "PREPARING", UI_COLOR_BLUE_DARK,
-                     UI_COLOR_BLUE_TINT);
+            set_chip(s_content, "PREPARING", UI_COLOR_ACTIVE,
+                     UI_COLOR_SURFACE);
             label_at(s_content, "Preparing sound", &lv_font_montserrat_20,
                      UI_COLOR_INK, 16, 54, 208, 32);
             set_footer("", "", "");

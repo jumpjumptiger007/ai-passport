@@ -93,6 +93,16 @@ static void label_at(lv_obj_t *parent, const char *text,
     lv_obj_set_pos(label, x, y);
 }
 
+static int32_t text_height(const char *text, const lv_font_t *font,
+                           int32_t width)
+{
+    lv_point_t size;
+
+    lv_text_get_size(&size, text != NULL ? text : "", font, 0, 1, width,
+                     LV_TEXT_FLAG_NONE);
+    return size.y + 2;
+}
+
 static void set_footer(const char *left, const char *center, const char *right)
 {
     const char *values[3] = {left, center, right};
@@ -101,8 +111,8 @@ static void set_footer(const char *left, const char *center, const char *right)
     }
 }
 
-static void set_chip(lv_obj_t *parent, const char *text, uint32_t foreground,
-                     uint32_t background)
+static void set_chip_at(lv_obj_t *parent, const char *text,
+                        uint32_t foreground, uint32_t background, int32_t y)
 {
     lv_obj_t *chip = lv_label_create(parent);
     lv_label_set_text(chip, text);
@@ -116,7 +126,13 @@ static void set_chip(lv_obj_t *parent, const char *text, uint32_t foreground,
     lv_obj_set_style_pad_hor(chip, 8, 0);
     lv_obj_set_style_pad_ver(chip, 2, 0);
     lv_obj_set_style_radius(chip, 3, 0);
-    lv_obj_align(chip, LV_ALIGN_TOP_LEFT, 12, 21);
+    lv_obj_align(chip, LV_ALIGN_TOP_LEFT, 12, y);
+}
+
+static void set_chip(lv_obj_t *parent, const char *text, uint32_t foreground,
+                     uint32_t background)
+{
+    set_chip_at(parent, text, foreground, background, 21);
 }
 
 static void set_header(const sonic_runtime_view_t *view,
@@ -223,7 +239,7 @@ static void render_home(const sonic_runtime_view_t *view)
                                    "Check system status"};
     for (size_t i = 0u; i < 3u; ++i) {
         bool selected = i == (size_t)view->home_selection;
-        lv_obj_t *row = make_card(s_content, 14, 56 + (int)i * 60, 212, 54,
+        lv_obj_t *row = make_card(s_content, 14, 56 + (int)i * 60, 212, 56,
                                   selected ? UI_COLOR_PANEL : UI_COLOR_SURFACE);
         if (selected) {
             lv_obj_set_style_border_color(row, color(UI_COLOR_ACTIVE), 0);
@@ -238,9 +254,9 @@ static void render_home(const sonic_runtime_view_t *view)
             lv_obj_align(dot, LV_ALIGN_LEFT_MID, -4, 0);
         }
         label_at(row, items[i], &lv_font_montserrat_14,
-                 selected ? UI_COLOR_ACTIVE : UI_COLOR_INK, 10, 5, 178, 20);
+                 selected ? UI_COLOR_ACTIVE : UI_COLOR_INK, 10, 4, 178, 20);
         label_at(row, copies[i], &lv_font_montserrat_14,
-                 UI_COLOR_MUTED, 10, 28, 178, 18);
+                 UI_COLOR_MUTED, 10, 25, 178, 18);
     }
     set_footer("UP/DN", "OK Open", "");
 }
@@ -340,21 +356,21 @@ static void render_receiving(const sonic_runtime_view_t *view)
     label_at(s_content, "FRAGMENTS", &lv_font_montserrat_14,
              UI_COLOR_MUTED, 30, 134, 180, 18);
     label_at(s_content, "MESSAGE ID", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 14, 190, 100, 18);
+             UI_COLOR_MUTED, 14, 184, 100, 18);
     label_at(s_content, "FRAME", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 14, 211, 100, 18);
+             UI_COLOR_MUTED, 14, 205, 100, 18);
     label_at(s_content, "SIGNAL", &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 14, 230, 100, 18);
+             UI_COLOR_MUTED, 14, 224, 100, 18);
     (void)snprintf(readout, sizeof(readout), "%04X", (unsigned)view->message_id);
     label_at(s_content, readout, &lv_font_montserrat_14,
-             UI_COLOR_INK, 134, 190, 90, 18);
+             UI_COLOR_INK, 134, 184, 90, 18);
     (void)snprintf(readout, sizeof(readout), "%u / %u",
                    (unsigned)view->received_fragments,
                    (unsigned)view->expected_fragments);
     label_at(s_content, readout, &lv_font_montserrat_14,
-             UI_COLOR_INK, 134, 211, 90, 18);
+             UI_COLOR_INK, 134, 205, 90, 18);
     label_at(s_content, "ACTIVE", &lv_font_montserrat_14,
-             UI_COLOR_ACTIVE, 134, 230, 90, 18);
+             UI_COLOR_ACTIVE, 134, 224, 90, 18);
     set_footer("", "", "Hold Stop");
 }
 
@@ -364,6 +380,8 @@ static void render_text_result(const sonic_runtime_view_t *view, bool url)
     char content[SONIC_MAX_MESSAGE_BYTES + 1u];
     char title[32];
     size_t page_count = sonic_ui_page_count(view);
+    int32_t content_height;
+    int32_t page_label_y;
     const char *kind = url ? "URL received" : "Text received";
 
     if (page_count > 1u &&
@@ -377,19 +395,22 @@ static void render_text_result(const sonic_runtime_view_t *view, bool url)
     }
     memcpy(content, view->payload + page.start, page.length);
     content[page.length] = '\0';
+    content_height = text_height(content, &lv_font_montserrat_14, 192);
+    page_label_y = 88 + content_height + 8;
     (void)snprintf(title, sizeof(title), "%s", url ? "URL" : "Message");
     set_chip(s_content, kind, UI_COLOR_GREEN, UI_COLOR_GREEN_TINT);
     label_at(s_content, title, &lv_font_montserrat_20,
              UI_COLOR_INK, 16, 43, 208, 28);
-    (void)make_card(s_content, 14, 78, 212, 135, UI_COLOR_SURFACE);
+    (void)make_card(s_content, 14, 78, 212, content_height + 20,
+                    UI_COLOR_SURFACE);
     label_at(s_content, content, &lv_font_montserrat_14,
-             UI_COLOR_INK, 24, 88, 192, 113);
+             UI_COLOR_INK, 24, 88, 192, content_height);
     if (page_count > 1u) {
         char page_label[20];
         (void)snprintf(page_label, sizeof(page_label), "%u / %u",
                        (unsigned)(s_page_index + 1u), (unsigned)page_count);
         label_at(s_content, page_label, &lv_font_montserrat_14,
-                 UI_COLOR_MUTED, 80, 222, 80, 18);
+                 UI_COLOR_MUTED, 80, page_label_y, 80, 18);
         set_footer("UP/DN", "OK Again", "Hold Back");
     } else {
         set_footer("", "OK Again", "Hold Back");
@@ -453,7 +474,7 @@ static void diag_row(lv_obj_t *parent, const char *key, const char *value,
     lv_obj_t *line = lv_obj_create(parent);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(line, 212, 1);
-    lv_obj_set_pos(line, 14, y + 20);
+    lv_obj_set_pos(line, 14, y + 18);
     lv_obj_set_style_bg_color(line, color(UI_COLOR_LINE), 0);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(line, 0, 0);
@@ -462,13 +483,13 @@ static void diag_row(lv_obj_t *parent, const char *key, const char *value,
 static void diag_profile_row(lv_obj_t *parent, const char *value, int y)
 {
     label_at(parent, "Profile", &lv_font_montserrat_14, UI_COLOR_MUTED,
-             14, y, 82, 18);
+             14, y, 78, 18);
     label_at(parent, value, &lv_font_montserrat_14, UI_COLOR_INK,
              98, y, 128, 18);
     lv_obj_t *line = lv_obj_create(parent);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(line, 212, 1);
-    lv_obj_set_pos(line, 14, y + 20);
+    lv_obj_set_pos(line, 14, y + 18);
     lv_obj_set_style_bg_color(line, color(UI_COLOR_LINE), 0);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(line, 0, 0);
@@ -554,7 +575,7 @@ static void render_device_info(const sonic_runtime_view_t *view)
     diag_row(s_content, "Sonic Link", version, 78);
     diag_row(s_content, "ggwave", ggwave, 105);
     diag_row(s_content, "Battery", battery, 132);
-    diag_row(s_content, "Profile", profile, 159);
+    diag_profile_row(s_content, profile, 159);
     diag_row(s_content, "Max message", max_message, 186);
     diag_row(s_content, "Build", fingerprint, 213);
     set_footer("", "OK Again", "Hold Back");
@@ -578,18 +599,23 @@ static void render_recoverable(const char *title, const char *copy,
 {
     char progress[24];
     bool incomplete = view->state == SONIC_RUNTIME_RX_INCOMPLETE;
+    const int32_t title_y = 44;
+    const int32_t title_height = text_height(title, &lv_font_montserrat_20, 216);
+    const int32_t copy_y = title_y + title_height + 8;
+    const int32_t copy_height = text_height(copy, &lv_font_montserrat_14, 204);
 
     set_chip(s_content, "Attention", UI_COLOR_AMBER, UI_COLOR_AMBER_TINT);
     label_at(s_content, title, &lv_font_montserrat_20,
-             UI_COLOR_INK, 16, 44, 208, 30);
+             UI_COLOR_INK, 12, title_y, 216, title_height);
     label_at(s_content, copy, &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 18, 82, 204, 46);
+             UI_COLOR_MUTED, 18, copy_y, 204, copy_height);
     if (incomplete) {
+        const int32_t progress_y = copy_y + copy_height + 12;
         (void)snprintf(progress, sizeof(progress), "%u / %u parts",
                        (unsigned)view->received_fragments,
                        (unsigned)view->expected_fragments);
         label_at(s_content, progress, &lv_font_montserrat_14,
-                 UI_COLOR_INK, 18, 148, 204, 24);
+                 UI_COLOR_INK, 18, progress_y, 204, 20);
         set_footer("", "OK Listen", "Hold Back");
     } else {
         set_footer("", "OK Again", "Hold Back");
@@ -598,11 +624,16 @@ static void render_recoverable(const char *title, const char *copy,
 
 static void render_audio_error(const char *title, const char *copy)
 {
+    const int32_t title_y = 44;
+    const int32_t title_height = text_height(title, &lv_font_montserrat_20, 216);
+    const int32_t copy_y = title_y + title_height + 8;
+    const int32_t copy_height = text_height(copy, &lv_font_montserrat_14, 204);
+
     set_chip(s_content, "Audio error", UI_COLOR_RED, UI_COLOR_RED_TINT);
     label_at(s_content, title, &lv_font_montserrat_20,
-             UI_COLOR_INK, 16, 44, 208, 30);
+             UI_COLOR_INK, 12, title_y, 216, title_height);
     label_at(s_content, copy, &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 18, 82, 204, 50);
+             UI_COLOR_MUTED, 18, copy_y, 204, copy_height);
     set_footer("", "OK Retry", "Hold Back");
 }
 
@@ -614,6 +645,8 @@ static void render_send_menu(const sonic_runtime_view_t *view)
     const size_t selected = (size_t)view->preset_selection % SONIC_RUNTIME_PRESET_COUNT;
     const size_t previous = (selected + SONIC_RUNTIME_PRESET_COUNT - 1u) % SONIC_RUNTIME_PRESET_COUNT;
     const size_t next = (selected + 1u) % SONIC_RUNTIME_PRESET_COUNT;
+    char previous_label[24];
+    char next_label[24];
     lv_obj_t *panel = make_card(s_content, 12, 91, 216, 118, UI_COLOR_LIGHT);
     lv_obj_set_style_bg_color(panel, color(UI_COLOR_LIGHT), 0);
     lv_obj_set_style_border_color(panel, color(0x8D8A81u), 0);
@@ -634,11 +667,13 @@ static void render_send_menu(const sonic_runtime_view_t *view)
     (void)snprintf(row, sizeof(row), "FRAMES  %u", (unsigned)view->frame_count);
     label_at(panel, row, &lv_font_montserrat_14, UI_COLOR_LIGHT_TEXT,
              12, 96, 184, 18);
-    lv_obj_t *neighbors = make_card(s_content, 14, 215, 212, 27, UI_COLOR_SURFACE);
-    label_at(neighbors, items[previous], &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 6, 5, 96, 18);
-    label_at(neighbors, items[next], &lv_font_montserrat_14,
-             UI_COLOR_INK, 108, 5, 96, 18);
+    lv_obj_t *neighbors = make_card(s_content, 8, 215, 224, 27, UI_COLOR_SURFACE);
+    (void)snprintf(previous_label, sizeof(previous_label), "< %s", items[previous]);
+    (void)snprintf(next_label, sizeof(next_label), "%s >", items[next]);
+    label_at(neighbors, previous_label, &lv_font_montserrat_14,
+             UI_COLOR_MUTED, 3, 4, 100, 18);
+    label_at(neighbors, next_label, &lv_font_montserrat_14,
+             UI_COLOR_INK, 109, 4, 100, 18);
     set_footer("UP/DN", "OK Open", "Hold Back");
 }
 
@@ -648,9 +683,23 @@ static void render_send_preview(const sonic_runtime_view_t *view)
     char preview[44];
     char details[44];
     char estimate[24];
+    size_t payload_length = view->payload_length;
     uint32_t milliseconds = (uint32_t)view->frame_count * 1200u;
 
-    if (view->payload_type == SONIC_TYPE_TOKEN) {
+    if (view->payload_type == SONIC_TYPE_DEVICE_INFO) {
+        sonic_device_info_t info;
+        if (sonic_device_info_parse(view->payload, view->payload_length,
+                                    &info) == SONIC_OK) {
+            (void)snprintf(payload, sizeof(payload), "Model %u\nSonic %u.%u.%u",
+                           (unsigned)info.model_id,
+                           (unsigned)info.sonic_major,
+                           (unsigned)info.sonic_minor,
+                           (unsigned)info.sonic_patch);
+        } else {
+            (void)snprintf(payload, sizeof(payload), "Device information card");
+        }
+        payload_length = strlen(payload);
+    } else if (view->payload_type == SONIC_TYPE_TOKEN) {
         for (size_t i = 0u; i < view->payload_length; ++i) {
             payload[i] = (view->payload[i] >= 0x20u && view->payload[i] <= 0x7Eu)
                              ? (char)view->payload[i]
@@ -672,7 +721,7 @@ static void render_send_preview(const sonic_runtime_view_t *view)
                    (unsigned)(milliseconds / 1000u),
                    (unsigned)((milliseconds % 1000u) / 100u));
 
-    size_t preview_length = view->payload_length;
+    size_t preview_length = payload_length;
     if (preview_length > 36u) {
         preview_length = 36u;
         while (preview_length > 0u &&
@@ -681,33 +730,34 @@ static void render_send_preview(const sonic_runtime_view_t *view)
         }
     }
     memcpy(preview, payload, preview_length);
-    if (preview_length < view->payload_length) {
+    if (preview_length < payload_length) {
         memcpy(preview + preview_length, "...", 4u);
     } else {
         preview[preview_length] = '\0';
     }
 
-    set_chip(s_content, "PREVIEW - READ ONLY", UI_COLOR_ACTIVE, UI_COLOR_SURFACE);
+    set_chip_at(s_content, "PREVIEW - READ ONLY", UI_COLOR_ACTIVE,
+                UI_COLOR_SURFACE, 52);
     label_at(s_content, view->preset_selection == SONIC_RUNTIME_PRESET_HELLO
                            ? "Hello"
                            : view->preset_selection == SONIC_RUNTIME_PRESET_DEMO_URL
                                  ? "Demo URL"
                                  : view->preset_selection == SONIC_RUNTIME_PRESET_DEVICE_CARD
                                        ? "Device Card" : "Test Token",
-             &lv_font_montserrat_20, UI_COLOR_INK, 16, 43, 208, 28);
-    lv_obj_t *card = make_card(s_content, 14, 75, 212, 104, UI_COLOR_SURFACE);
+             &lv_font_montserrat_20, UI_COLOR_INK, 16, 78, 208, 28);
+    lv_obj_t *card = make_card(s_content, 14, 110, 212, 92, UI_COLOR_SURFACE);
     label_at(card, view->payload_type == SONIC_TYPE_TEXT ? "TEXT" :
                   view->payload_type == SONIC_TYPE_URL ? "URL" :
                   view->payload_type == SONIC_TYPE_TOKEN ? "TOKEN" : "DEVICE_INFO",
-             &lv_font_montserrat_14, UI_COLOR_MUTED, 8, 1, 184, 18);
+             &lv_font_montserrat_14, UI_COLOR_MUTED, 8, 3, 184, 18);
     label_at(card, preview, &lv_font_montserrat_14,
-             UI_COLOR_INK, 8, 20, 184, 72);
+             UI_COLOR_INK, 8, 25, 184, 60);
     (void)snprintf(details, sizeof(details), "%u B / %u fr / %.8s",
                    (unsigned)view->payload_length,
                    (unsigned)view->frame_count,
                    estimate);
     label_at(s_content, details, &lv_font_montserrat_14,
-             UI_COLOR_MUTED, 14, 187, 212, 22);
+             UI_COLOR_MUTED, 14, 208, 212, 20);
     set_footer("", "OK Send", "Hold Back");
 }
 
@@ -751,11 +801,13 @@ static void render_diagnostics(const sonic_runtime_view_t *view,
 {
     static const char *tabs[] = {"SYS", "AUDIO", "CODEC", "LAST"};
     char value[36];
-    const int y = 94;
+    const int y = 85;
     const int page = (int)view->diagnostics_page;
+    static const int32_t tab_y = 52;
+    static const int32_t row_pitch = 20;
 
     for (int i = 0; i < 4; ++i) {
-        lv_obj_t *tab = make_card(s_content, 14 + i * 53, 60, 52, 27,
+        lv_obj_t *tab = make_card(s_content, 14 + i * 53, tab_y, 52, 25,
                                   i == page ? UI_COLOR_LIGHT : UI_COLOR_SURFACE);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_set_style_radius(tab, 2, 0);
@@ -765,24 +817,24 @@ static void render_diagnostics(const sonic_runtime_view_t *view,
                                          50, 18);
         lv_obj_set_style_text_align(tab_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_letter_space(tab_label, -1, 0);
-        lv_obj_set_pos(tab_label, 0, 4);
+        lv_obj_set_pos(tab_label, 0, 3);
     }
     switch (view->diagnostics_page) {
     case SONIC_RUNTIME_DIAG_SYSTEM:
         diag_row(s_content, "Sonic Link", context->sonic_version, y);
-        diag_row(s_content, "Build", context->build_fingerprint, y + 18);
+        diag_row(s_content, "Build", context->build_fingerprint, y + row_pitch);
         if (context->battery_percent >= 0) {
             (void)snprintf(value, sizeof(value), "%d%%", context->battery_percent);
         } else {
             (void)snprintf(value, sizeof(value), "-");
         }
-        diag_row(s_content, "Battery", value, y + 36);
+        diag_row(s_content, "Battery", value, y + 2 * row_pitch);
         (void)snprintf(value, sizeof(value), "%d B", context->free_heap_bytes);
-        diag_row(s_content, "Free heap", context->free_heap_bytes >= 0 ? value : "-", y + 54);
+        diag_row(s_content, "Free heap", context->free_heap_bytes >= 0 ? value : "-", y + 3 * row_pitch);
         (void)snprintf(value, sizeof(value), "%d B", context->minimum_free_heap_bytes);
-        diag_row(s_content, "Min heap", context->minimum_free_heap_bytes >= 0 ? value : "-", y + 72);
+        diag_row(s_content, "Min heap", context->minimum_free_heap_bytes >= 0 ? value : "-", y + 4 * row_pitch);
         (void)snprintf(value, sizeof(value), "%d B", context->largest_free_block_bytes);
-        diag_row(s_content, "Largest blk", context->largest_free_block_bytes >= 0 ? value : "-", y + 90);
+        diag_row(s_content, "Largest blk", context->largest_free_block_bytes >= 0 ? value : "-", y + 5 * row_pitch);
         break;
     case SONIC_RUNTIME_DIAG_AUDIO:
         (void)snprintf(value, sizeof(value), "%ukHz/%ub/1ch",
@@ -793,33 +845,33 @@ static void render_diagnostics(const sonic_runtime_view_t *view,
                        context->audio_diagnostics_available
                            ? (double)context->microphone_dbfs : 0.0);
         diag_row(s_content, "Mic level",
-                 context->audio_diagnostics_available ? value : "-", y + 18);
+                 context->audio_diagnostics_available ? value : "-", y + row_pitch);
         (void)snprintf(value, sizeof(value), "%u%%",
                        (unsigned)context->speaker_volume_percent);
-        diag_row(s_content, "Volume", value, y + 36);
-        diag_row(s_content, "Worker", audio_state_name(context->audio_state), y + 54);
+        diag_row(s_content, "Volume", value, y + 2 * row_pitch);
+        diag_row(s_content, "Worker", audio_state_name(context->audio_state), y + 3 * row_pitch);
         (void)snprintf(value, sizeof(value), "%u words",
                        (unsigned)context->worker_stack_high_water_words);
         diag_row(s_content, "Stack free",
-                 context->audio_diagnostics_available ? value : "-", y + 72);
+                 context->audio_diagnostics_available ? value : "-", y + 4 * row_pitch);
         break;
     case SONIC_RUNTIME_DIAG_CODEC:
         diag_row(s_content, "ggwave", context->ggwave_version, y);
         diag_profile_row(s_content,
                          context->acoustic_profile == 1u ? "Audible Fastest" :
                          context->acoustic_profile == 2u ? "Audible Fast" : "Unknown",
-                         y + 18);
-        diag_row(s_content, "Frame", "40 bytes", y + 36);
-        diag_row(s_content, "Max message", "93 bytes", y + 54);
-        diag_row(s_content, "DSS", "Enabled", y + 72);
+                         y + row_pitch);
+        diag_row(s_content, "Frame", "40 bytes", y + 2 * row_pitch);
+        diag_row(s_content, "Max message", "93 bytes", y + 3 * row_pitch);
+        diag_row(s_content, "DSS", "Enabled", y + 4 * row_pitch);
         (void)snprintf(value, sizeof(value), "%d B", context->codec_heap_bytes);
-        diag_row(s_content, "Codec heap", context->codec_heap_bytes >= 0 ? value : "-", y + 90);
+        diag_row(s_content, "Codec heap", context->codec_heap_bytes >= 0 ? value : "-", y + 5 * row_pitch);
         (void)snprintf(value, sizeof(value), "%llu us",
                        (unsigned long long)context->rx_average_us);
-        diag_row(s_content, "RX avg", context->audio_diagnostics_available ? value : "-", y + 108);
+        diag_row(s_content, "RX avg", context->audio_diagnostics_available ? value : "-", y + 6 * row_pitch);
         (void)snprintf(value, sizeof(value), "%llu us",
                        (unsigned long long)context->rx_p99_us);
-        diag_row(s_content, "RX p99", context->audio_diagnostics_available ? value : "-", y + 126);
+        diag_row(s_content, "RX p99", context->audio_diagnostics_available ? value : "-", y + 7 * row_pitch);
         break;
     case SONIC_RUNTIME_DIAG_LAST_TRANSFER: {
         const sonic_runtime_last_transfer_t *transfer = &view->last_transfer;
@@ -828,19 +880,19 @@ static void render_diagnostics(const sonic_runtime_view_t *view,
             break;
         }
         diag_row(s_content, "Direction", transfer->is_rx ? "Receive" : "Send", y);
-        diag_row(s_content, "Type", payload_type_name(transfer->type), y + 18);
+        diag_row(s_content, "Type", payload_type_name(transfer->type), y + row_pitch);
         (void)snprintf(value, sizeof(value), "%u / %u B",
                        (unsigned)transfer->frame_count,
                        (unsigned)transfer->byte_length);
-        diag_row(s_content, "Frames / B", value, y + 36);
+        diag_row(s_content, "Frames / B", value, y + 2 * row_pitch);
         (void)snprintf(value, sizeof(value), "%u ms",
                        (unsigned)transfer->duration_ms);
-        diag_row(s_content, "Duration", value, y + 54);
+        diag_row(s_content, "Duration", value, y + 3 * row_pitch);
         (void)snprintf(value, sizeof(value), "%04X",
                        (unsigned)transfer->message_id);
-        diag_row(s_content, "Message ID", value, y + 72);
-        diag_row(s_content, "Result", transfer_result_name(transfer->result), y + 90);
-        diag_row(s_content, "Error", sonic_error_name(transfer->error), y + 108);
+        diag_row(s_content, "Message ID", value, y + 4 * row_pitch);
+        diag_row(s_content, "Result", transfer_result_name(transfer->result), y + 5 * row_pitch);
+        diag_row(s_content, "Error", sonic_error_name(transfer->error), y + 6 * row_pitch);
         break;
     }
     }

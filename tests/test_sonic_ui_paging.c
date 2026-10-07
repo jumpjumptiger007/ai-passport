@@ -11,6 +11,8 @@ static void test_text_pages(void)
     static const uint8_t multiline[] =
         "first line\nsecond line\nthird line\nfourth line\nfifth line";
     uint8_t maximum[SONIC_MAX_MESSAGE_BYTES];
+    uint8_t with_spaces[SONIC_MAX_MESSAGE_BYTES];
+    static const char words[] = "readable content keeps whole words across pages ";
     sonic_ui_page_t page;
 
     memset(maximum, 'W', sizeof(maximum));
@@ -26,6 +28,15 @@ static void test_text_pages(void)
     assert(page.start == 72u && page.length == 21u);
     assert(!sonic_ui_text_page(maximum, sizeof(maximum), 2u, &page));
     assert(sonic_ui_text_page_count(maximum, sizeof(maximum) + 1u) == 0u);
+
+    for (size_t i = 0u; i < sizeof(with_spaces); ++i) {
+        with_spaces[i] = (uint8_t)words[i % (sizeof(words) - 1u)];
+    }
+    assert(sonic_ui_text_page_count(with_spaces, sizeof(with_spaces)) > 1u);
+    assert(sonic_ui_text_page(with_spaces, sizeof(with_spaces), 0u, &page));
+    assert(with_spaces[page.start + page.length - 1u] == (uint8_t)' ');
+    assert(sonic_ui_text_page(with_spaces, sizeof(with_spaces), 1u, &page));
+    assert(with_spaces[page.start] != (uint8_t)' ');
 }
 
 static void test_url_pages(void)

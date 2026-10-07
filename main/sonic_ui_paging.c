@@ -31,6 +31,7 @@ static size_t sonic_ui_next_text_page(const uint8_t *bytes, size_t length,
     size_t offset = start;
     size_t columns = 0u;
     size_t lines = 1u;
+    size_t last_word_break_end = start;
 
     while (offset < length) {
         size_t count = sonic_ui_codepoint_bytes(bytes + offset, length - offset);
@@ -44,7 +45,16 @@ static size_t sonic_ui_next_text_page(const uint8_t *bytes, size_t length,
             columns = 0u;
         }
         if (lines > SONIC_UI_TEXT_LINES_PER_PAGE) {
+            if (newline) {
+                return offset + count;
+            }
+            if (last_word_break_end > start) {
+                return last_word_break_end;
+            }
             return offset;
+        }
+        if (newline || (count == 1u && bytes[offset] == (uint8_t)' ')) {
+            last_word_break_end = offset + count;
         }
         offset += count;
         if (!newline) {

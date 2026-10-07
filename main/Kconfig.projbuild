@@ -2,9 +2,9 @@ menu "Sonic Link"
 
 config SONIC_DEMO_URL
     string "Demo URL payload"
-    default "https://sonic.link/demo"
+    default "https://sonic.yliu.tech"
     help
-        URL preset transmitted by the development Send menu. This is a local
-        demo payload and does not imply a deployed Sonic Link service.
+        Canonical production URL preset transmitted by the Send menu. Keep it
+        paired with the deployed Sonic Link Web Companion release.
 
 endmenu

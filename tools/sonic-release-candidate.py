@@ -35,6 +35,11 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, help="default: build/sonic-release")
     parser.add_argument("--deployed-url", help="only set after deployment identity is verified")
     parser.add_argument("--deployment-verified", action="store_true")
+    parser.add_argument("--pages-run-id", help="successful GitHub Actions Pages workflow run")
+    parser.add_argument("--pages-deployment-id", help="GitHub Pages deployment identity")
+    parser.add_argument("--pages-source-revision", help="source revision used for the verified Pages deployment")
+    parser.add_argument("--dns-target", help="Cloudflare DNS-only CNAME target")
+    parser.add_argument("--dns-proxied", action="store_true", help="set only if Cloudflare proxy is enabled")
     args = parser.parse_args()
     repo = args.repo.resolve()
     web = repo / "web-companion"
@@ -44,6 +49,8 @@ def main() -> int:
         revision = git(repo, "rev-parse", "HEAD")
         if args.deployment_verified and not args.deployed_url:
             raise ValueError("--deployment-verified requires --deployed-url")
+        if args.deployment_verified and not all((args.pages_run_id, args.pages_deployment_id, args.pages_source_revision, args.dns_target)):
+            raise ValueError("verified deployment metadata requires Pages run/deployment/revision and DNS target")
         if args.deployed_url and not args.deployed_url.startswith("https://"):
             raise ValueError("deployed URL must use HTTPS")
         if args.deployment_verified and len(args.deployed_url.encode("utf-8")) > 93:
@@ -123,6 +130,24 @@ def main() -> int:
                 "deployed_url": args.deployed_url if args.deployment_verified else None,
                 "deployment_verified": bool(args.deployment_verified),
             },
+            "hosting": {
+                "provider": "GitHub Pages" if args.deployment_verified else None,
+                "repository": "jumpjumptiger007/ai-passport" if args.deployment_verified else None,
+                "branch": "feature/sonic-link" if args.deployment_verified else None,
+                "workflow": ".github/workflows/sonic-link-pages.yml" if args.deployment_verified else None,
+                "workflow_run_id": args.pages_run_id if args.deployment_verified else None,
+                "deployment_id": args.pages_deployment_id if args.deployment_verified else None,
+                "source_revision": args.pages_source_revision if args.deployment_verified else None,
+                "production_url": args.deployed_url if args.deployment_verified else None,
+                "custom_domain": "sonic.yliu.tech" if args.deployment_verified else None,
+            },
+            "dns": {
+                "provider": "Cloudflare" if args.deployment_verified else None,
+                "record_type": "CNAME" if args.deployment_verified else None,
+                "hostname": "sonic.yliu.tech" if args.deployment_verified else None,
+                "target": args.dns_target if args.deployment_verified else None,
+                "proxied": bool(args.dns_proxied) if args.deployment_verified else None,
+            },
             "compatibility": {
                 "protocol_version": 1,
                 "frame_size": 40,
@@ -142,7 +167,7 @@ def main() -> int:
                 "G18": "NOT RUN",
                 "G21": "NOT RUN",
                 "G22": "NOT RUN",
-                "G24": "predeployment candidate identity only; URL-paired identity not run",
+                "G24": "PASS / official verified archive, full-image hash, and matching ELF fingerprint recorded" if args.deployment_verified else "NOT RUN / final URL-paired archive identity not generated",
                 "G25": "NOT RUN",
             },
         }

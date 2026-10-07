@@ -1,0 +1,11 @@
+{
+  "name": "Sonic Link Web Companion",
+  "short_name": "Sonic Link",
+  "description": "Move small data through sound with FoloToy AI Passport.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef1f4",
+  "theme_color": "#f8fafb",
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

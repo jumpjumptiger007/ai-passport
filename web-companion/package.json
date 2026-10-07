@@ -1,0 +1,22 @@
+{
+  "name": "sonic-link-web-companion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "build": "npm run build:wasm && vite build && node scripts/postbuild.mjs",
+    "test:wasm": "node scripts/test-wasm.mjs && node scripts/test-web-audio-chunking.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests/*.test.ts",
+    "test:browser": "node scripts/test-service-worker.mjs && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "typescript": "5.9.2",
+    "vite": "6.4.4",
+    "vitest": "4.1.11"
+  }
+}

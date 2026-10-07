@@ -1,0 +1,10 @@
+menu "Sonic Link"
+
+config SONIC_DEMO_URL
+    string "Demo URL payload"
+    default "https://sonic.link/demo"
+    help
+        URL preset transmitted by the development Send menu. This is a local
+        demo payload and does not imply a deployed Sonic Link service.
+
+endmenu

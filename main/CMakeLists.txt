@@ -1,16 +1,10 @@
 idf_component_register(
-    SRCS "main.c"
-         "demo_navigation.c"
-         "ui_pixel.c"
-         "ui_pixel_math.c"
-         "demo_display.c"
-         "demo_button.c"
-         "demo_audio.c"
-         "demo_battery.c"
-         "demo_radio.c"
-         "demo_wifi.c"
-         "demo_ble.c"
-         "demo_low_power.c"
+    SRCS "sonic_app.cpp"
+         "sonic_app_fingerprint.c"
+         "sonic_memory_gate.c"
+         "sonic_ui.c"
+         "sonic_ui_paging.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES bsp esp_app_format esp_system esp_timer freertos heap
+            sonic_audio sonic_core sonic_ggwave_profile sonic_runtime
 )

@@ -6,6 +6,10 @@
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // 初始化共享总线。幂等:重复调用直接返回 ESP_OK,可在每个驱动的 init 里放心调。
 esp_err_t bsp_i2c_init(void);
 
@@ -20,3 +24,7 @@ esp_err_t bsp_i2c_scan(void);
 // 设为无上下拉的高阻输入。调用后禁止再访问总线，必须立即进入 deep sleep
 // 或重启。板上外部上拉电阻的静态功耗不受此接口控制。
 esp_err_t bsp_i2c_prepare_deep_sleep(void);
+
+#ifdef __cplusplus
+}
+#endif

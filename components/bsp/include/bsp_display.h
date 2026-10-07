@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The final LVGL frame is masked to this radius; pixels outside are pure black.
 #define BSP_LVGL_SCREEN_RADIUS 30
 
@@ -46,3 +50,7 @@ struct _lv_display_t *bsp_lvgl_init(void);
 // LVGL 尚未就绪或超时时 lock 返回 false；只有 lock 成功后才调用 unlock。
 bool bsp_lvgl_lock(int timeout_ms);
 void bsp_lvgl_unlock(void);
+
+#ifdef __cplusplus
+}
+#endif

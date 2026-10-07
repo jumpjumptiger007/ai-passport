@@ -5,6 +5,10 @@
 
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // 初始化。内部会调 bsp_i2c_init()(幂等)。
 // 芯片不应答时返回 ESP_ERR_NOT_FOUND —— 上层可据此在 UI 上标记该项不可用。
 esp_err_t bsp_battery_init(void);
@@ -18,3 +22,7 @@ int bsp_battery_soc(void);
 
 // 电池电压 mV;读失败返回 -1。
 int bsp_battery_mv(void);
+
+#ifdef __cplusplus
+}
+#endif

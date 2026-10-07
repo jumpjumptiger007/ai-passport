@@ -51,6 +51,14 @@ def main() -> int:
             raise ValueError("--deployment-verified requires --deployed-url")
         if args.deployment_verified and not all((args.pages_run_id, args.pages_deployment_id, args.pages_source_revision, args.dns_target)):
             raise ValueError("verified deployment metadata requires Pages run/deployment/revision and DNS target")
+        if args.deployment_verified and args.deployed_url != "https://sonic.yliu.tech":
+            raise ValueError("the verified production URL must be https://sonic.yliu.tech")
+        if args.deployment_verified and not re.fullmatch(r"[0-9a-f]{40}", args.pages_source_revision):
+            raise ValueError("Pages source revision must be a full commit SHA")
+        if args.deployment_verified and not (args.pages_run_id.isdecimal() and args.pages_deployment_id.isdecimal()):
+            raise ValueError("Pages run and deployment identities must be numeric IDs")
+        if args.deployment_verified and (args.dns_target != "jumpjumptiger007.github.io" or args.dns_proxied):
+            raise ValueError("Cloudflare DNS must remain DNS-only and target jumpjumptiger007.github.io")
         if args.deployed_url and not args.deployed_url.startswith("https://"):
             raise ValueError("deployed URL must use HTTPS")
         if args.deployment_verified and len(args.deployed_url.encode("utf-8")) > 93:
@@ -164,7 +172,10 @@ def main() -> int:
                 "G14": "NOT RUN",
                 "G15": "NOT RUN",
                 "G16": "NOT RUN",
+                "G17": "NOT RUN",
                 "G18": "NOT RUN",
+                "G19": "NOT RUN",
+                "G20": "PARTIAL / Web media-track and Worker lifecycle tests PASS; Passport transition and heap-drift measurements NOT RUN",
                 "G21": "NOT RUN",
                 "G22": "NOT RUN",
                 "G24": "PASS / official verified archive, full-image hash, and matching ELF fingerprint recorded" if args.deployment_verified else "NOT RUN / final URL-paired archive identity not generated",

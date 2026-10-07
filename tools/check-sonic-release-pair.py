@@ -74,6 +74,21 @@ def check(repo: Path, manifest_path: Path) -> None:
     cache_match = re.search(r"const CACHE=(\"[^\"]+\")", sw)
     require(cache_match is not None and json.loads(cache_match.group(1)) == f"sonic-link-{web_version['version']}", "service-worker cache identity mismatch")
     require(manifest["web"]["cache_name"] == json.loads(cache_match.group(1)), "manifest service-worker cache identity is stale")
+    if manifest["web"]["deployment_verified"]:
+        hosting = manifest["hosting"]
+        dns = manifest["dns"]
+        require(hosting["provider"] == "GitHub Pages", "verified release must record GitHub Pages hosting")
+        require(hosting["repository"] == "jumpjumptiger007/ai-passport", "Pages repository identity mismatch")
+        require(hosting["branch"] == "feature/sonic-link", "Pages branch identity mismatch")
+        require(hosting["workflow"] == ".github/workflows/sonic-link-pages.yml", "Pages workflow identity mismatch")
+        require(hosting["production_url"] == demo_url == manifest["web"]["deployed_url"], "deployed URL differs across release artifacts")
+        require(hosting["custom_domain"] == parsed_demo.hostname, "Pages custom domain differs from the Demo URL")
+        require(all(hosting[key] for key in ("workflow_run_id", "deployment_id", "source_revision")), "Pages deployment identity is incomplete")
+        require(dns["provider"] == "Cloudflare" and dns["record_type"] == "CNAME", "DNS provider or record type mismatch")
+        require(dns["hostname"] == parsed_demo.hostname and dns["target"] == "jumpjumptiger007.github.io", "Cloudflare Pages CNAME target mismatch")
+        require(dns["proxied"] is False, "Cloudflare CNAME must remain DNS only for this release")
+        require(manifest["gate_status"]["G12"] == "PASS", "verified deployment must record G12 PASS")
+        require(manifest["gate_status"]["G24"].startswith("PASS"), "URL-paired verified archive must record G24 PASS")
     files_manifest = repo / manifest["web"]["files_manifest"]
     raw_files_manifest = files_manifest.read_bytes()
     require(hashlib.sha256(raw_files_manifest).hexdigest() == manifest["web"]["bundle_digest_sha256"], "Web bundle digest is stale")
